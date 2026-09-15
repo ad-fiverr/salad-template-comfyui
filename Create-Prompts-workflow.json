@@ -1,0 +1,211 @@
+{
+  "id": "13ea6a2a-9618-4cd5-8a85-1b26234ea75d",
+  "revision": 0,
+  "last_node_id": 20,
+  "last_link_id": 17,
+  "nodes": [
+    {
+      "id": 8,
+      "type": "PreviewAny",
+      "pos": [
+        805.7051561983468,
+        316.0723677685953
+      ],
+      "size": [
+        422.96000000000004,
+        394.69000000000005
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "title": "JSON PROMPT",
+      "properties": {
+        "Node name for S&R": "PreviewAny",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 1,
+      "type": "Ask_Gemini",
+      "pos": [
+        529.6149165289256,
+        305.2771214876032
+      ],
+      "size": [
+        272.79051846590914,
+        399.8300545454547
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "name": "image_2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image_3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Ask_Gemini",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Extreme Long Shot (ELS), full body pose, 14mm lens, f/8.0, deep depth of field, camera distanced from subject.\nShot on a Kodak 2383 ISO 400 35mm camera.\nput the face in this reference image (we need to mantpose and costume)\nA realistic iPhone 17 Pro Max back-camera selfie of the person from the reference imagen, The selfie is taken at a terrible angle with no effort. The lighting is uneven—one side blown out by light, the other in shadow.   her head tilted slightly. creating an interesting visual mosaic. The lighting is low and atmospheric, casting soft shadows, contributing to the intimate and luxurious feel of the scene. The background is plain and forgettable, like a wall and a wooden bed header. The image has slight blur and noise, overall quality is sharp and highly detailed, emphasizing the amateur and the realistic setting. Use photo reference for facial features.",
+        "BLOCK_NONE",
+        "text",
+        "gemini-2.5-flash",
+        "",
+        "",
+        "ROL Eres un Arquitecto de Prompts SDXL y Especialista en ControlNet para Krea 2. Tu trabajo es analizar imágenes de entrada para generar un JSON de configuración técnica. Tu prioridad es la fidelidad de la pose, la física de las prendas (drapeado, tensión mecánica, caída de la tela), el control espacial de la cámara y la transcripción exacta de marcas/textos.  FLUJO DE TRABAJO INPUT A (Main Character/Pose): Analiza la postura, iluminación y entorno. INPUT B (Outfit - Opcional): Analiza la tela, corte y textura. OUTPUT: Genera un JSON fusionando la ropa del Input B en la pose del Input A.  REGLAS ABSOLUTAS (VIOLARLAS ES FALLAR)  1. PROTOCOLO DE PROTECCIÓN DE LORA (Identity Firewall) - TRIGGER OBLIGATORIO: El campo `description` en el sujeto principal SIEMPRE debe comenzar con: `(((ad_ape))), woman,` - DESTRUCCIÓN DE BIOLOGÍA GENÉRICA: El LoRA contiene toda la genética. ❌ PROHIBIDO usar descriptores como \"blonde hair\", \"blue eyes\", \"pale skin\", \"curvy\", \"tall\", \"age\", \"gender\".  - REGLA DE ESTILISMO: Describe ÚNICAMENTE el trabajo de estilismo temporal. ✅ USAR: \"wet skin\", \"red lipstick\", \"sweaty skin\", \"braided hair\" (el estilo, no el color), \"messy bun\". - EXCEPCIÓN ESTRUCTURAL: Si debes corregir proporciones, usa lenguaje anatómico/geométrico exacto. ✅ USAR: \"vertical short-face structure\", \"octagonal jaw shape\".  2. PROTOCOLO \"SILENT KEY\" (Limpieza y Purga de Datos) - Si un campo no aplica, o si se trata de biología del sujeto principal (ej. \"age\", \"gender\", \"skin_tone\", \"facial_features\"): ELIMINA LA LLAVE DEL JSON POR COMPLETO. - ❌ NUNCA ESCRIBAS: \"N/A\", \"null\", \"None\", \"Unknown\". El JSON debe quedar purgado de llaves vacías.  3. FÍSICA DE LA ROPA (Sastrería Virtual) Viste al sujeto con el INPUT B. Describe la tensión mecánica y el comportamiento textil estructural, no uses lenguaje sugestivo: \"fabric straining across chest\", \"waistband digging into skin\", \"gaping at the back\", \"flat structural silhouette\", \"heavy denim drape\".  4. CONTROL ESPACIAL Y BLOQUEO F-STOP (Anti-Center Crop) Las IAs tienden a hacer acercamientos sin profundidad. Para forzar una distancia real y escala: - Inyecta terminología de lentes angulares para alejar al sujeto: \"Extreme Long Shot (ELS), full body pose, 14mm lens, camera distanced from subject.\" - Bloqueo F-Stop: Usa siempre \"f/8.0\" o \"f/11\" y \"deep depth of field, infinite focus\" para prohibir el desenfoque de fondo. - Añade emulación de celuloide para textura: \"Shot on a Kodak 2383 ISO 400 35mm camera.\"  5. PROTOCOLO CLOUD VISION API (Reconocimiento OCR y Marcas) Actúa como un escáner de visión computacional.  - Identifica modelos exactos (ej. \"Yamaha boat\", \"Nike swoosh\", \"Rolex watch\"). - Transcribe texto visible en accesorios, carteles o ropa usando comillas dobles (ej. text \"HELLO\"). - Inserta estos datos en `detected_brands_and_text` y refléjalos en el `comprehensive_t2i_caption`.  ESTRUCTURA DE SALIDA (JSON) Genera únicamente este código JSON. APLICA EL PROTOCOLO SILENT KEY ESTRICTAMENTE.  ```json {   \"subjects\": [     {       \"description\": \"(((ad_ape))), woman, [ACCIÓN PRINCIPAL]\",       \"appearance_details\": \"[SOLO ESTILISMO: Peinado/Maquillaje/Sudor. ELIMINA esta llave si no hay estilismo destacable]\",       \"relationship\": \"[Interacción con otros sujetos u objetos]\",       \"location\": \"[Posición en el encuadre]\",       \"relative_size\": [Número del 1 al 100 indicando porcentaje del encuadre],       \"orientation\": \"[Hacia dónde mira el cuerpo]\",       \"pose\": \"[Descripción técnica de la postura anatómica y distribución de peso]\",       \"clothing\": \"[Física de la prenda, tensión mecánica, drapeado estructural]\",       \"expression\": \"[Dirección de mirada y energía facial]\",       \"number_of_subjects\": 1,       \"number_of_arms\": 2,       \"number_of_legs\": 2,       \"number_of_hands\": 2,       \"number_of_fingers\": 10     }   ],   \"subject_details\": {     \"key_interaction\": \"[Ej: Reflexión visible en espejo, tensión de agarre de un objeto]\"   },   \"detected_brands_and_text\": [     {       \"type\": \"[Brand Logo / Written Text / Object Model]\",       \"location\": \"[Ej: Chest of the shirt, Side of the boat, Billboard]\",       \"exact_content\": \"[El texto exacto entre comillas o el nombre de la marca]\"     }   ],   \"background_setting\": \"[Descripción del entorno físico, incluyendo modelos específicos de vehículos u objetos]\",   \"lighting\": {     \"conditions\": \"[Ej: Soft diffused, harsh sunlight]\",     \"direction\": \"[Ej: Backlit, side-lighting]\",     \"shadows\": \"[Ej: Sharp cast shadows, minimal soft shadows]\",     \"illumination_effect\": \"[Impacto visual de la luz]\"   },   \"aesthetics\": {     \"composition\": \"[Ej: Rule of thirds, centered, extreme wide frame]\",     \"color_scheme\": \"[Paleta de colores dominante]\",     \"mood_atmosphere\": \"[Tono emocional del entorno]\"   },   \"cinematography\": {     \"framing\": \"Extreme Long Shot (ELS) / Full body pose\",     \"camera_angle\": \"[Ej: High angle, low angle, eye-level]\",     \"depth_of_field\": \"Deep depth of field, infinite focus\",     \"focus\": \"Sharp focus on subject and background\",     \"lens_focal_length\": \"14mm lens, camera distanced from subject\",     \"film_stock\": \"Shot on a Kodak 2383 ISO 400 35mm camera\"   },   \"style_medium\": \"Digital Photography\",   \"context\": \"[Propósito o narrativa de la imagen]\",   \"quadrant_scan\": {     \"top_left\": \"[Contenido del cuadrante]\",     \"top_right\": \"[Contenido del cuadrante]\",     \"bottom_left\": \"[Contenido del cuadrante]\",     \"bottom_right\": \"[Contenido del cuadrante]\",     \"absolute_center\": \"[Punto de enfoque central]\"   },   \"comprehensive_t2i_caption\": \"[Párrafo T2I final. Inicia con el trigger (((de4rmolly))), woman. Integra textos exactos y marcas (Cloud Vision). Combina ELS, f/8.0, infinite focus, física de la ropa y el entorno. CERO descripciones genéticas (sin color de pelo, piel, ni forma corporal genérica). Máxima precisión técnica y espacial.]\",   \"resolution\": {     \"H\": [Alto],     \"W\": [Ancho]   },   \"aspect_ratio\": \"[Ej: 9:16, 16:9, 4:3]\" }",
+        "",
+        430650741,
+        "randomize",
+        1,
+        0
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 18,
+      "type": "LoadImage",
+      "pos": [
+        193.58587106146672,
+        297.4793785123968
+      ],
+      "size": [
+        326.721828125,
+        407.7024000000001
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            15
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      7,
+      1,
+      0,
+      8,
+      0,
+      "STRING"
+    ],
+    [
+      15,
+      18,
+      0,
+      1,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Generate JSON PROMPT",
+      "bounding": [
+        183.58587106146672,
+        227.4793785123968,
+        1055.0792851368801,
+        493.28298925619856
+      ],
+      "color": "#b58b2a",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "ds": {
+      "scale": 1,
+      "offset": [
+        209.31253664693838,
+        -56.95928645087659
+      ]
+    },
+    "links_added_by_ue": [],
+    "frontendVersion": "1.45.21",
+    "VHS_latentpreview": true,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}
