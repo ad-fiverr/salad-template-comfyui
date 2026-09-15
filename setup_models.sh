@@ -363,12 +363,8 @@ python3 -c "from huggingface_hub import login; login(token='$HF_TOKEN')"
 
 echo "[ ------- Downloading Diffusion Models -------]"
 cd ${COMFYUI_DIR}/models/diffusion_models && rm -rf split_files/
-download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
-    "minimax_h3_fl2va_pruned_int8_convrot.safetensors" "$HF_TOKEN"
-
-download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" \
-    "minimax_h3_ref2va_pruned_int8_convrot.safetensors" "$HF_TOKEN"
-
+download_if_missing "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors" \
+    "10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors" "$HF_TOKEN"
 
 
 echo "[ Text Encoders ]"
@@ -379,8 +375,11 @@ download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/te
 # ------------------------------ LORAS ---
 echo "[ LoRAs ]"
 cd ${COMFYUI_DIR}/models/loras && rm -rf split_files/
-download_if_missing "https://huggingface.co/drbaph/MiniMax-H3-Turbo-Lora-ComfyUI/blob/main/minimax_h3_turbo_4step_ckpt500_pruned_comfyui.safetensors" \
-    "minimax_h3_turbo_4step_ckpt500_pruned_comfyui.safetensors" "$HF_TOKEN"
+download_if_missing "https://huggingface.co/Robert1212star/TaoMate-H3-3Step-ComfyUI/resolve/main/taomate_h3_3step_comfy.safetensors" \
+    "taomate_h3_3step_comfy.safetensors" "$HF_TOKEN"
+    
+download_if_missing "https://huggingface.co/Kijai/MiniMax-H3_comfy/resolve/main/loras/minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors" \
+    "minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors" "$HF_TOKEN"
     
 
 
@@ -401,8 +400,8 @@ download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main
     "ae.safetensors" "$HF_TOKEN"
 download_if_missing "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" \
     "flux2-vae.safetensors" "$HF_TOKEN"
-download_if_missing "https://civitai.red/api/download/models/3068442?fileId=2947164&token=e3a803e3831ec4832fd75d014b2d385e" \
-    "krea2RealVae_v10.safetensors" "$HF_TOKEN"
+download_if_missing "https://huggingface.co/wikeeyang/Krea2-Turbo-HD-V1/resolve/main/Krea2-HD-vae.safetensors" \
+    "Krea2-HD-vae.safetensors" "$HF_TOKEN"
 
 
 
@@ -430,8 +429,9 @@ download_if_missing "https://huggingface.co/HCMUE-Research/SAM-vit-h/resolve/mai
 echo "[ ------- Downloading Diffusion Models -------]"
 cd ${COMFYUI_DIR}/models/diffusion_models && rm -rf split_files/
 
-download_if_missing "https://huggingface.co/exjadev/diffusion_models/resolve/main/krast_v20.safetensors" \
-    "krast_v20.safetensors" "$HF_TOKEN"
+download_if_missing "https://civitai.red/api/download/models/3122202?type=Model&format=SafeTensor&token=e3a803e3831ec4832fd75d014b2d385e" \
+    "IntoRealismKrea2.safetensors"
+
 
 cd ${COMFYUI_DIR}/models/diffusion_models 
 download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
@@ -477,14 +477,6 @@ download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbo
 download_if_missing "https://huggingface.co/xingren23/comfyflow-models/resolve/976de8449674de379b02c144d0b3cfa2b61482f2/ultralytics/bbox/hand_yolov8s.pt" \
     "hand_yolov8s.pt" "$HF_TOKEN"
 
-# ------------------------------ LORAS ---
-echo "[ LoRAs ]"
-cd ${COMFYUI_DIR}/models/loras && rm -rf recipes/
-# Civitai filters & loras
-download_if_missing "https://civitai.red/api/download/models/3067151?type=Model&format=SafeTensor&token=e3a803e3831ec4832fd75d014b2d385e" \
-    "krea2filterbypass3.safetensors"
-
-
 
 
 # ── Upscaler Models ──────────────────────────────────────────────────────────
@@ -495,6 +487,8 @@ download_if_missing "https://huggingface.co/FacehugmanIII/4x_foolhardy_Remacri/r
     "4x_foolhardy_Remacri.pth" "$HF_TOKEN"
 download_if_missing "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors" \
     "4x-UltraSharpV2.safetensors" "$HF_TOKEN"
+download_if_missing "https://huggingface.co/holwech/universal-upscaler-v2-esrgan/resolve/main/4x_UniversalUpscalerV2-Neutral_115000_swaG.pth" \
+    "4x_UniversalUpscalerV2-Neutral_115000_swaG.pth" "$HF_TOKEN"
 
 
 download_gdown_if_missing "1N3ysO2IWkouzy4aFONLgYUjaUMrLz8AB" "4xFFHQDAT.pth"

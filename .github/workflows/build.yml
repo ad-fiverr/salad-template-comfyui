@@ -51,3 +51,14 @@ jobs:
           no-cache: true
           build-args: |
             HF_TOKEN=${{ secrets.HF_TOKEN }}
+        
+      - name: Analizar tamaño de la imagen publicada
+        run: |
+          IMAGE="${{ env.IMAGE_NAME }}:build-${{ github.run_number }}"
+          echo "Imagen:"
+          echo "$IMAGE"
+          docker buildx imagetools inspect "$IMAGE"
+          echo
+          echo "Manifest RAW:"
+          docker buildx imagetools inspect --raw "$IMAGE" > manifest.json
+          cat manifest.json | jq .
