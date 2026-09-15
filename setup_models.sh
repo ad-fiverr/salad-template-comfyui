@@ -536,11 +536,10 @@ echo "  Setup full. starting ComfyUI..."
 echo "================================================"
 
 chmod -R 777 /workspace/ComfyUI
-
 COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 
-# Salad Container Gateway entra por IPv6. Escuchar en :: permite que el
-# gateway y las probes HTTP alcancen ComfyUI directamente.
+rm -rf /workspace/ComfyUI/user/__manager/cache/*
+
 exec python /workspace/ComfyUI/main.py \
     --listen "::" \
     --port "$COMFYUI_PORT" \
