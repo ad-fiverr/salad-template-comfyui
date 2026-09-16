@@ -130,6 +130,57 @@ HF_TOKEN="${HF_TOKEN}"
 HF_TOKEN_loras="${HF_TOKEN_loras}"
 COMFYUI_DIR="/workspace/ComfyUI"
 
+# =============================================================================
+# PASO 0.6: Validación "fail-fast" del token de Hugging Face
+# =============================================================================
+# La API de HF devuelve 404 (no 401) para repos protegidos cuando el token
+# es inválido/revocado — así que un 404 durante la descarga NO nos dice si el
+# repo no existe o si el token está muerto. En vez de descubrirlo 15 archivos
+# después (y peor, dejar que aria2c reintente el mismo token muerto), lo
+# comprobamos UNA vez aquí con una llamada barata a whoami-v2 y abortamos
+# inmediatamente si no es válido.
+validate_hf_token() {
+    local token="$1"
+    local label="${2:-HF_TOKEN}"
+
+    if [ -z "$token" ]; then
+        echo "🔴 CRITICAL ERROR: $label está vacío — no se definió la variable de entorno."
+        return 1
+    fi
+
+    echo "🔑 Validando $label contra la API de Hugging Face..."
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        --connect-timeout 10 --max-time 15 \
+        -H "Authorization: Bearer $token" \
+        "https://huggingface.co/api/whoami-v2")
+
+    if [ "$http_code" = "200" ]; then
+        echo "✅ $label válido."
+        return 0
+    elif [ "$http_code" = "401" ]; then
+        echo "🔴 CRITICAL ERROR: $label fue RECHAZADO (401) — el token es inválido o fue revocado."
+        echo "🔴 Esto suele pasar cuando GitHub/HF Secret Scanning detecta el token expuesto"
+        echo "🔴 (por ejemplo en logs de CI/CD) y lo invalida automáticamente."
+        echo "🔴 ACCIÓN: genera un token nuevo en https://huggingface.co/settings/tokens,"
+        echo "🔴 actualízalo como secret SIN imprimirlo en ningún log, y vuelve a lanzar."
+        return 1
+    else
+        echo "⚠️  No se pudo verificar $label (HTTP $http_code) — puede ser un problema de red."
+        echo "⚠️  Continuando, pero si las descargas fallan revisa el token manualmente."
+        return 0
+    fi
+}
+
+if ! validate_hf_token "$HF_TOKEN" "HF_TOKEN"; then
+    exit 1
+fi
+# Solo valida el segundo token si de verdad se usa en este script y viene definido.
+if [ -n "$HF_TOKEN_loras" ]; then
+    validate_hf_token "$HF_TOKEN_loras" "HF_TOKEN_loras" || exit 1
+fi
+
  
 # Fuerza los directorios temporales de descarga al volumen de 250GB (/workspace)
 # en vez del disco del contenedor (15GB), que se llena con archivos grandes
@@ -252,9 +303,7 @@ download_if_missing() {
 
                 interval_speed=$(( (current_size - previous_size) / 15 / 1024 / 1024 ))
 
-                echo "📦 $file_name: $(
-                    (current_size / 1024 / 1024)
-                ) MiB | ${interval_speed} MiB/s"
+                echo "📦 $file_name: $(( current_size / 1024 / 1024 )) MiB | ${interval_speed} MiB/s"
 
                 previous_size="$current_size"
             done
@@ -314,6 +363,16 @@ download_if_missing() {
     fi
 
     local aria_status=$?
+
+    # errorCode=24 de aria2c = "Authorization failed" (HTTP 401/403).
+    # No tiene sentido dejar que las siguientes ~20 descargas repitan el mismo
+    # error con el mismo token; abortamos todo el script de inmediato.
+    if [ "$aria_status" -eq 24 ]; then
+        echo "🔴 CRITICAL ERROR: aria2c recibió 'Authorization failed' (código 24) para $file_name."
+        echo "🔴 El token fue rechazado a mitad de las descargas (pudo haberse revocado recién)."
+        echo "🔴 Abortando en vez de seguir fallando en cascada. Revisa/rota el token y reinicia."
+        exit 1
+    fi
 
     if [ "$aria_status" -eq 0 ] && [ -s "$part_path" ]; then
         mv -f "$part_path" "$dest"
@@ -584,10 +643,10 @@ filepath = '/workspace/ComfyUI/user/default/comfy.settings.json'
 os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
 try:
-with open(filepath, 'r') as f:
-    data = json.load(f)
+    with open(filepath, 'r') as f:
+        data = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
-data = {}
+    data = {}
 
 # Fuerza la desactivación de Nodes 2.0
 data['Comfy.VueNodes.Enabled'] = False

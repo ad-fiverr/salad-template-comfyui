@@ -120,10 +120,6 @@ COPY Klein-Inpainting-workflow.json /ComfyUI/user/default/workflows/Klein-Inpain
 RUN pip install --no-cache-dir gdown  comfyui-manager
 RUN pip install --no-cache-dir -U "huggingface_hub[hf_xet]"
 
-
-ARG HF_TOKEN
-ENV HF_TOKEN=${HF_TOKEN}
-
 COPY setup_models.sh /setup_models.sh
 RUN dos2unix /setup_models.sh && chmod +x /setup_models.sh
 
