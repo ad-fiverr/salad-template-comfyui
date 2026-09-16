@@ -52,6 +52,74 @@ if [ $? -ne 0 ]; then
     echo "⚠️ ComfyUI will continue, but use SDPA/PyTorch attention."
 fi
 
+# =============================================================================
+# PASO 0.5: Healthcheck de Red (SaladCloud Network Bandwidth Check)
+# =============================================================================
+echo "================================================"
+echo "  Checking Network Bandwidth Before Startup..."
+echo "================================================"
+
+# Salad usa PCs residenciales con anchos de banda muy variables.
+# Forzamos una reasignación (IMDS) si la red no da al menos 20 Mbps,
+# para evitar quedarnos atascados horas descargando safetensors masivos.
+
+MIN_MBPS="60" # Requisito mínimo (20 Mbps ~ 2.5 MB/s). Ajústalo si necesitas más.
+SPEED_TEST_URL="https://speed.cloudflare.com/__down?bytes=25000000" # Archivo de 25MB
+SPEED_TEST_ATTEMPTS="3"
+best_mbps="0"
+NETWORK_OK="false"
+
+for attempt in $(seq 1 "$SPEED_TEST_ATTEMPTS"); do
+  echo "Speed test attempt ${attempt}/${SPEED_TEST_ATTEMPTS}..."
+
+  if speed_bps=$(curl -L -o /dev/null -sS \
+      --connect-timeout 5 \
+      --max-time 30 \
+      -w "%{speed_download}" \
+      "$SPEED_TEST_URL"); then
+
+    # Convierte bytes/seg a Megabits/seg (Mbps)
+    mbps=$(awk -v s="$speed_bps" 'BEGIN {printf "%.2f", s * 8 / 1000000}')
+    echo "Measured download speed: ${mbps} Mbps"
+
+    # Guarda el mejor resultado
+    best_mbps=$(awk -v best="$best_mbps" -v current="$mbps" \
+      'BEGIN {printf "%.2f", (current > best ? current : best)}')
+
+    # Si supera el mínimo, la red sirve y rompemos el bucle
+    if awk -v current="$mbps" -v min="$MIN_MBPS" \
+      'BEGIN {exit !(current >= min)}'; then
+      echo "✅ Speed check passed. Network is stable."
+      NETWORK_OK="true"
+      break
+    fi
+  else
+    echo "⚠️ Speed test attempt failed (posible 'Network is unreachable')."
+  fi
+
+  sleep 10
+done
+
+if [ "$NETWORK_OK" != "true" ]; then
+  reason="Insufficient download bandwidth or no network: best measured ${best_mbps} Mbps, required ${MIN_MBPS} Mbps"
+  
+  echo "🔴 CRITICAL ERROR: Speed check failed. Requesting Salad replica reallocation..."
+  echo "$reason"
+
+  # Llama a la API interna de Salad (IMDS) para reasignar este contenedor a otro nodo
+  curl -sS \
+    --request POST \
+    --url "http://169.254.169.254/v1/reallocate" \
+    --header "Content-Type: application/json" \
+    --header "Metadata: true" \
+    --data "{\"reason\":\"${reason}\"}" || true
+
+  echo "Reallocation requested. Exiting."
+  exit 1
+fi
+
+echo "================================================"
+
 
 # =============================================================================
 # setup_models.sh - Configuración de RunPod
@@ -182,10 +250,7 @@ download_if_missing() {
                 )"
                 current_size="${current_size:-0}"
 
-                interval_speed=$(
-                    (current_size - previous_size) /
-                    15 / 1024 / 1024
-                )
+                interval_speed=$(( (current_size - previous_size) / 15 / 1024 / 1024 ))
 
                 echo "📦 $file_name: $(
                     (current_size / 1024 / 1024)
@@ -510,6 +575,26 @@ download_gdown_if_missing "1GJEhRrycKwMINkgicw_GjQbjuwdqRJ9P" "LUTs" "folder"
 
 ) &
 
+echo "[ Configurando la desactivación de Nodes 2.0... ]"
+python3 -c "
+import json
+import os
+
+filepath = '/workspace/ComfyUI/user/default/comfy.settings.json'
+os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+try:
+with open(filepath, 'r') as f:
+    data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+data = {}
+
+# Fuerza la desactivación de Nodes 2.0
+data['Comfy.VueNodes.Enabled'] = False
+
+with open(filepath, 'w') as f:
+json.dump(data, f, indent=4)
+"
 
 cd ${COMFYUI_DIR}
 # 2. Escribir los permisos de los modelos en la lista blanca
