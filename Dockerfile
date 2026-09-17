@@ -108,6 +108,16 @@ RUN for dir in rgthree-comfy ComfyUI-Impact-Pack ComfyUI_essentials ComfyUI-GGUF
     done
 
 
+# pedalboard (usado por CRT-Nodes/Audio_Compressor.py) trae un binario nativo
+# que puede exigir instrucciones de CPU (AVX-512) que algunos hosts de Salad
+# no tienen. Ahí no lanza un error normal de Python: manda 'Illegal instruction'
+# (SIGILL), que mata TODO el proceso de ComfyUI sin que ningún try/except lo
+# pueda atrapar — y Salad reinicia el contenedor en la misma máquina una y otra
+# vez, repitiendo el mismo crash indefinidamente. Lo desinstalamos para que ese
+# import falle como cualquier dependencia opcional faltante (ImportError, que
+# ComfyUI sí sabe tolerar y sigue arrancando el resto de los nodos).
+RUN pip uninstall -y pedalboard || true
+
 RUN cd /ComfyUI/custom_nodes/ComfyUI-Impact-Pack && python3 install.py || true    
 RUN rm -rf /ComfyUI/custom_nodes/ComfyUI-Login /ComfyUI/custom_nodes/ComfyUI-login
 
@@ -132,4 +142,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90m --retries=3 \
         "http://[::1]:${COMFYUI_PORT}/system_stats" > /dev/null || exit 1
 
 CMD ["/setup_models.sh"]
-
