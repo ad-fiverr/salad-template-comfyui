@@ -14,6 +14,9 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
+    # Permite que aiohttp entregue correctamente JS/CSS; Firefox bloquea octet-stream con nosniff.
+RUN python3 -c "import mimetypes; assert mimetypes.guess_type('asset.js')[0] in ('application/javascript', 'text/javascript'); assert mimetypes.guess_type('asset.css')[0] == 'text/css'"
+
 # aiohttp uses the OS MIME database for static extension assets.  Without
 # media-types it can label JavaScript/CSS as application/octet-stream, which
 # Firefox correctly rejects when nosniff is enabled.
@@ -50,6 +53,8 @@ RUN git clone https://github.com/thu-ml/SageAttention.git /tmp/SageAttention \
 # --- Clonar ComfyUI directamente desde el repo oficial ---
 RUN git clone --depth=1 https://github.com/comfyanonymous/ComfyUI.git /ComfyUI
 RUN pip install --no-cache-dir -r /ComfyUI/requirements.txt
+# Evita los 116 blueprints globales que fallan al cargar el frontend.
+RUN rm -rf /ComfyUI/blueprints
 
 # ComfyUI 0.36.0 / frontend 1.52.7 currently fails to deserialize every bundled
 # global blueprint at startup.  They are optional example workflows; removing
