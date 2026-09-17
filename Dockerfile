@@ -46,6 +46,12 @@ RUN git clone https://github.com/thu-ml/SageAttention.git /tmp/SageAttention \
 RUN git clone --depth=1 https://github.com/comfyanonymous/ComfyUI.git /ComfyUI
 RUN pip install --no-cache-dir -r /ComfyUI/requirements.txt
 
+# ComfyUI 0.36.0 / frontend 1.52.7 currently fails to deserialize every bundled
+# global blueprint at startup.  They are optional example workflows; removing
+# them prevents the 116 failed subgraph loads without removing MiniMax or any
+# custom node required by this image.
+RUN rm -rf /ComfyUI/blueprints
+
 # --- Constraint global ANTES de instalar cualquier custom node ---
 RUN echo "kornia==0.6.12" > /etc/pip-constraints.txt
 ENV PIP_CONSTRAINT=/etc/pip-constraints.txt
