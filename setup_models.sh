@@ -636,26 +636,18 @@ download_gdown_if_missing "1GJEhRrycKwMINkgicw_GjQbjuwdqRJ9P" "LUTs" "folder"
 
 echo "[ Configurando la desactivación de Nodes 2.0... ]"
 python3 -c "
-import json
-import os
-
+import json, os
+from contextlib import suppress
 filepath = '/workspace/ComfyUI/user/default/comfy.settings.json'
 os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-try:
-    with open(filepath, 'r') as f:
-        data = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    data = {}
-
-# Fuerza la desactivación de Nodes 2.0
+data = {}
+with suppress(FileNotFoundError, json.JSONDecodeError): data = json.load(open(filepath))
 data['Comfy.VueNodes.Enabled'] = False
-
-with open(filepath, 'w') as f:
-json.dump(data, f, indent=4)
+json.dump(data, open(filepath, 'w'), indent=4)
 "
 
 cd ${COMFYUI_DIR}
+mkdir -p /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack
 # 2. Escribir los permisos de los modelos en la lista blanca
 echo "4x-UltraSharpV2.safetensors" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
 echo "4xFFHQDAT.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
