@@ -6,13 +6,18 @@ ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV COMFYUI_PORT=8188
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    git wget curl dos2unix aria2 megatools \
+    git wget curl dos2unix aria2 megatools media-types \
     python3.11 python3.11-venv python3.11-distutils python3.11-dev  \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 \
     fonts-dejavu-core fontconfig \
     libegl1 libglx-mesa0 libglu1-mesa libgles2 libosmesa6 mesa-utils \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
+
+# aiohttp uses the OS MIME database for static extension assets.  Without
+# media-types it can label JavaScript/CSS as application/octet-stream, which
+# Firefox correctly rejects when nosniff is enabled.
+RUN python3 -c "import mimetypes; assert mimetypes.guess_type('asset.js')[0] in ('application/javascript', 'text/javascript'); assert mimetypes.guess_type('asset.css')[0] == 'text/css'"
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
