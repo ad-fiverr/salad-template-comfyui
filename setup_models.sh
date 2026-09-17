@@ -534,9 +534,6 @@ download_if_missing "https://huggingface.co/wikeeyang/Krea2-Turbo-HD-V1/resolve/
 # --- SAM3 ---
 echo "[ ----------- Downloading SAM3 -----------  ]"
 cd ${COMFYUI_DIR}/models/sam3
-download_if_missing "https://huggingface.co/facebook/sam3/resolve/main/sam3.pt" \
-    "sam3.pt" "$HF_TOKEN"
-
 
     # ── SAMS (ReActor/Segment Anything) ──────────────────────────────────────────
 echo "[ SAM3 ]"
@@ -553,8 +550,8 @@ download_if_missing "https://huggingface.co/HCMUE-Research/SAM-vit-h/resolve/mai
 echo "[ ------- Downloading Diffusion Models -------]"
 cd ${COMFYUI_DIR}/models/diffusion_models && rm -rf split_files/
 
-download_if_missing "https://civitai.red/api/download/models/3122202?type=Model&format=SafeTensor&token=e3a803e3831ec4832fd75d014b2d385e" \
-    "IntoRealismKrea2.safetensors"
+download_if_missing "https://huggingface.co/enzinoai/IntoRealism-Krea-2/resolve/main/Krea2IntoRealismV1-Int8.safetensors" \
+    "IntoRealismKrea2.safetensors" 
 
 
 cd ${COMFYUI_DIR}/models/diffusion_models 
