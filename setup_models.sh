@@ -224,7 +224,7 @@ download_if_missing() {
     local url="$1"
     local dest="$2"
     local auth="${3:-}"
-    local conns="${4:-16}"
+    local conns="${4:-${DOWNLOAD_CONNECTIONS:-16}}"
     local hf_timeout="${HF_FILE_TIMEOUT:-1200}"
 
     local dest_dir
@@ -278,7 +278,7 @@ download_if_missing() {
 
                 # Más estable para una instancia de 60 GB que HIGH_PERFORMANCE.
                 unset HF_XET_HIGH_PERFORMANCE HF_XET_HP
-                export HF_XET_NUM_CONCURRENT_RANGE_GETS=32
+                export HF_XET_NUM_CONCURRENT_RANGE_GETS="${HF_XET_NUM_CONCURRENT_RANGE_GETS:-32}"
                 export HF_XET_CHUNK_CACHE_SIZE_BYTES=0
                 export HF_HUB_DOWNLOAD_TIMEOUT=60
 
@@ -482,55 +482,254 @@ echo "Auth with Hugging Face..."
 # Usamos el comando de Python para el login con el token proporcionado
 python3 -c "from huggingface_hub import login; login(token='$HF_TOKEN')"
 
-# ── SECCIÓN DE DESCARGAS MODELOS DE VIDEO  ─────────────────────────
+# Descargas críticas: si falta un asset de MiniMax, NO anunciamos Ready.
+critical_download_if_missing() {
+    if ! download_if_missing "$@"; then
+        echo "🔴 CRITICAL ERROR: no se pudo preparar un asset requerido por MiniMax H3."
+        exit 1
+    fi
+}
 
+# ── SECCIÓN CRÍTICA: MINIMAX H3 ──────────────────────────────────────────────
+# Mientras esta sección corre, ComfyUI todavía no arranca y Salad seguirá
+# mostrando Ready = false. La idea es que aquí quede SOLO lo imprescindible
+# para el producto MiniMax H3.
+export DOWNLOAD_CONNECTIONS="${CRITICAL_DOWNLOAD_CONNECTIONS:-16}"
+export HF_XET_NUM_CONCURRENT_RANGE_GETS="${CRITICAL_HF_XET_RANGE_GETS:-32}"
+
+echo "================================================"
+echo "  PHASE 1: Downloading MiniMax H3 critical assets"
+echo "================================================"
 
 echo "[ ------- Downloading Diffusion Models -------]"
 cd ${COMFYUI_DIR}/models/diffusion_models && rm -rf split_files/
-download_if_missing "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors" \
+critical_download_if_missing "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors" \
     "10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors" "$HF_TOKEN"
 
 
 echo "[ Text Encoders ]"
 cd ${COMFYUI_DIR}/models/text_encoders && rm -rf split_files/
-download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+critical_download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
     "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" "$HF_TOKEN"
     
 # ------------------------------ LORAS ---
 echo "[ LoRAs ]"
 cd ${COMFYUI_DIR}/models/loras && rm -rf split_files/
-download_if_missing "https://huggingface.co/Robert1212star/TaoMate-H3-3Step-ComfyUI/resolve/main/taomate_h3_3step_comfy.safetensors" \
+critical_download_if_missing "https://huggingface.co/Robert1212star/TaoMate-H3-3Step-ComfyUI/resolve/main/taomate_h3_3step_comfy.safetensors" \
     "taomate_h3_3step_comfy.safetensors" "$HF_TOKEN"
     
-download_if_missing "https://huggingface.co/Kijai/MiniMax-H3_comfy/resolve/main/loras/minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors" \
+critical_download_if_missing "https://huggingface.co/Kijai/MiniMax-H3_comfy/resolve/main/loras/minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors" \
     "minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors" "$HF_TOKEN"
     
 
 
 echo "[ VAE ]"
 cd ${COMFYUI_DIR}/models/vae && rm -rf split_files/
-download_if_missing "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_fp32.safetensors" \
+critical_download_if_missing "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_fp32.safetensors" \
     "Wan2_1_VAE_fp32.safetensors" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors" \
+critical_download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors" \
     "minimax_h3_video_vae_fp16.safetensors" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors" \
+critical_download_if_missing "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors" \
     "minimax_h3_audio_vae_fp32.safetensors" "$HF_TOKEN"
 
 
-# --- VAE ---
-echo "[ VAE ]"
-cd ${COMFYUI_DIR}/models/vae && rm -rf split_files/
-download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
-    "ae.safetensors" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" \
-    "flux2-vae.safetensors" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/wikeeyang/Krea2-Turbo-HD-V1/resolve/main/Krea2-HD-vae.safetensors" \
-    "Krea2-HD-vae.safetensors" "$HF_TOKEN"
+# Si llegamos aquí, el conjunto crítico de MiniMax ya está en disco.
+mkdir -p /workspace/.setup_state
+printf 'ready\n' > /workspace/.setup_state/minimax_h3
+echo "✅ MiniMax H3 critical assets are ready."
+
+echo "[ Configurando la desactivación de Nodes 2.0... ]"
+python3 -c "
+import json, os
+from contextlib import suppress
+filepath = '/workspace/ComfyUI/user/default/comfy.settings.json'
+os.makedirs(os.path.dirname(filepath), exist_ok=True)
+data = {}
+with suppress(FileNotFoundError, json.JSONDecodeError): data = json.load(open(filepath))
+data['Comfy.VueNodes.Enabled'] = False
+json.dump(data, open(filepath, 'w'), indent=4)
+"
+
+cd ${COMFYUI_DIR}
+mkdir -p /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack
+# 2. Escribir los permisos de los modelos en la lista blanca
+echo "4x-UltraSharpV2.safetensors" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+echo "4xFFHQDAT.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+echo "4x_foolhardy_Remacri.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+echo "BROKEN_NCNN/4x-ClearRealityV1-fp16.bin" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+echo "4x-ClearRealityV1.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+
+# Autorización para el modelo SwinIR
+echo "003_realSR_BSRGAN_DFOWMFC_s64w8_SwinIR-L_x4_GAN.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
 
 
+# Supervisión de procesos: este shell queda como PID 1 y NO hace exec de ComfyUI.
+# Esto permite reiniciar SOLO ComfyUI dentro del mismo contenedor si muere con 137
+# (SIGKILL / probable OOM), conservando el nodo y los archivos ya descargados.
+COMFY_PID=""
+OPTIONAL_DOWNLOAD_PID=""
+OOM_RESTART_COUNT=0
+OOM_RESTART_MAX="${OOM_RESTART_MAX:-0}"   # 0 = ilimitados; usa p.ej. 5 para limitar
+OOM_RESTART_DELAY="${OOM_RESTART_DELAY:-5}"
+COMFY_OOM_SCORE_ADJ="${COMFY_OOM_SCORE_ADJ:-500}"  # prioriza matar ComfyUI antes que el supervisor
+
+cleanup() {
+    echo "Stopping ComfyUI/background downloads..."
+    if [ -n "${OPTIONAL_DOWNLOAD_PID:-}" ] && kill -0 "$OPTIONAL_DOWNLOAD_PID" 2>/dev/null; then
+        kill -TERM "$OPTIONAL_DOWNLOAD_PID" 2>/dev/null || true
+    fi
+    if [ -n "${COMFY_PID:-}" ] && kill -0 "$COMFY_PID" 2>/dev/null; then
+        kill -TERM "$COMFY_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup TERM INT
+
+chmod -R 777 /workspace/ComfyUI
+COMFYUI_PORT="${COMFYUI_PORT:-8188}"
+rm -rf /workspace/ComfyUI/user/__manager/cache/*
+
+start_comfyui() {
+    echo ""
+    echo "================================================"
+    echo "  Starting ComfyUI on IPv6 [::]:${COMFYUI_PORT}"
+    echo "================================================"
+
+    # IMPORTANTE: Salad Container Gateway requiere IPv6. No cambiar :: por 0.0.0.0.
+    # Ejecutamos ComfyUI con oom_score_adj positivo. Si Linux debe elegir un proceso
+    # para matar por falta de RAM, esto aumenta la probabilidad de que mate al worker
+    # pesado y deje vivo este supervisor (PID 1), que puede reiniciarlo.
+    (
+        echo "$COMFY_OOM_SCORE_ADJ" > /proc/self/oom_score_adj 2>/dev/null || true
+        exec python /workspace/ComfyUI/main.py \
+            --listen "::" \
+            --port "$COMFYUI_PORT" \
+            --enable-manager
+    ) &
+    COMFY_PID=$!
+    echo "ComfyUI PID: ${COMFY_PID}"
+}
+
+wait_comfy_ready() {
+    echo "Esperando /system_stats por IPv6..."
+    for attempt in $(seq 1 180); do
+        if curl --noproxy '*' --fail --silent --show-error --max-time 2 \
+            "http://[::1]:${COMFYUI_PORT}/system_stats" > /dev/null 2>&1; then
+            echo "✅ ComfyUI responde por IPv6 en [::1]:${COMFYUI_PORT}."
+            echo "✅ Startup/Readiness de Salad pueden pasar y abrir el Gateway."
+            return 0
+        fi
+
+        if ! kill -0 "$COMFY_PID" 2>/dev/null; then
+            wait "$COMFY_PID"
+            local status=$?
+            echo "⚠️ ComfyUI terminó durante startup con exit code ${status}."
+            return "$status"
+        fi
+        sleep 2
+    done
+
+    echo "🔴 ComfyUI no respondió por IPv6 después de 360 segundos."
+    return 124
+}
 
 
+log_oom_diagnostics() {
+    echo "--- OOM diagnostics ---"
+    if [ -r /sys/fs/cgroup/memory.events ]; then
+        echo "cgroup memory.events:"
+        cat /sys/fs/cgroup/memory.events 2>/dev/null || true
+    fi
+    if [ -r /sys/fs/cgroup/memory.current ]; then
+        echo -n "cgroup memory.current: "
+        cat /sys/fs/cgroup/memory.current 2>/dev/null || true
+    fi
+    if [ -r /sys/fs/cgroup/memory.max ]; then
+        echo -n "cgroup memory.max: "
+        cat /sys/fs/cgroup/memory.max 2>/dev/null || true
+    fi
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        echo "GPU memory snapshot:"
+        nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free --format=csv,noheader 2>/dev/null || true
+    fi
+    echo "-----------------------"
+}
+
+restart_after_oom() {
+    OOM_RESTART_COUNT=$((OOM_RESTART_COUNT + 1))
+    echo ""
+    echo "🟠 ComfyUI salió con 137 (SIGKILL / probable OOM)."
+    echo "🟠 NO se cerrará el contenedor; se reiniciará ComfyUI en el MISMO pod/nodo."
+    echo "🟠 OOM restart #${OOM_RESTART_COUNT}."
+    log_oom_diagnostics
+
+    if [ "$OOM_RESTART_MAX" -gt 0 ] && [ "$OOM_RESTART_COUNT" -gt "$OOM_RESTART_MAX" ]; then
+        echo "🔴 Se alcanzó OOM_RESTART_MAX=${OOM_RESTART_MAX}; permitiendo que Salad gestione el fallo."
+        return 1
+    fi
+
+    sleep "$OOM_RESTART_DELAY"
+    return 0
+}
+
+launch_comfy_until_ready() {
+    while true; do
+        start_comfyui
+        wait_comfy_ready
+        local status=$?
+
+        if [ "$status" -eq 0 ]; then
+            return 0
+        fi
+
+        if [ "$status" -eq 137 ]; then
+            if restart_after_oom; then
+                continue
+            fi
+            return 137
+        fi
+
+        return "$status"
+    done
+}
+
+# ── Arranque inicial de ComfyUI ANTES de descargas opcionales ─────────────────
+launch_comfy_until_ready
+START_STATUS=$?
+if [ "$START_STATUS" -ne 0 ]; then
+    # Un fallo distinto de OOM no se oculta: Salad podrá diagnosticar/reubicarlo.
+    exit "$START_STATUS"
+fi
+
+# Solo AHORA, con el Gateway listo, empezamos a consumir ancho de banda con
+# Krea / Z-Image / Klein / SAM / upscalers, etc.
+echo "================================================"
+echo "  PHASE 2: Gateway ready; starting optional downloads"
+echo "================================================"
+
+# Descargas opcionales en segundo plano. ComfyUI y el Gateway ya están listos.
 (
+    export DOWNLOAD_CONNECTIONS="${BACKGROUND_DOWNLOAD_CONNECTIONS:-4}"
+    export HF_XET_NUM_CONCURRENT_RANGE_GETS="${BACKGROUND_HF_XET_RANGE_GETS:-8}"
+
+    mkdir -p /workspace/.setup_state
+    printf 'downloading\n' > /workspace/.setup_state/optional_models
+
+    echo "================================================"
+    echo "  Optional models downloading in background"
+    echo "  aria2 connections: ${DOWNLOAD_CONNECTIONS}"
+    echo "  HF/Xet range gets: ${HF_XET_NUM_CONCURRENT_RANGE_GETS}"
+    echo "================================================"
+
+    # VAEs de otros productos: NO deben bloquear MiniMax / Gateway.
+    echo "[ Background VAEs: Z-Image / Klein / Krea ]"
+    cd ${COMFYUI_DIR}/models/vae && rm -rf split_files/
+    download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
+        "ae.safetensors" "$HF_TOKEN"
+    download_if_missing "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" \
+        "flux2-vae.safetensors" "$HF_TOKEN"
+    download_if_missing "https://huggingface.co/wikeeyang/Krea2-Turbo-HD-V1/resolve/main/Krea2-HD-vae.safetensors" \
+        "Krea2-HD-vae.safetensors" "$HF_TOKEN"
+
 # --- SAM3 ---
 echo "[ ----------- Downloading SAM3 -----------  ]"
 cd ${COMFYUI_DIR}/models/sam3
@@ -627,47 +826,42 @@ echo ""
 echo "[ ----------Downloading LUTs --------------]"
 download_gdown_if_missing "1GJEhRrycKwMINkgicw_GjQbjuwdqRJ9P" "LUTs" "folder"
 
-
+printf 'ready\n' > /workspace/.setup_state/optional_models
+echo "✅ Optional/background downloads finished."
 
 ) &
+OPTIONAL_DOWNLOAD_PID=$!
+echo "Background download PID: ${OPTIONAL_DOWNLOAD_PID}"
 
-echo "[ Configurando la desactivación de Nodes 2.0... ]"
-python3 -c "
-import json, os
-from contextlib import suppress
-filepath = '/workspace/ComfyUI/user/default/comfy.settings.json'
-os.makedirs(os.path.dirname(filepath), exist_ok=True)
-data = {}
-with suppress(FileNotFoundError, json.JSONDecodeError): data = json.load(open(filepath))
-data['Comfy.VueNodes.Enabled'] = False
-json.dump(data, open(filepath, 'w'), indent=4)
-"
+# ── Supervisor de runtime ─────────────────────────────────────────────────────
+# Si ComfyUI recibe SIGKILL/137, intentamos recuperarlo dentro del mismo pod.
+# Al mantener vivo este shell (PID 1), Salad no ve un exit no-cero del contenedor
+# y por tanto evitamos disparar una reallocation por ese crash de ComfyUI.
+while true; do
+    wait "$COMFY_PID"
+    COMFY_STATUS=$?
 
-cd ${COMFYUI_DIR}
-mkdir -p /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack
-# 2. Escribir los permisos de los modelos en la lista blanca
-echo "4x-UltraSharpV2.safetensors" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
-echo "4xFFHQDAT.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
-echo "4x_foolhardy_Remacri.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
-echo "BROKEN_NCNN/4x-ClearRealityV1-fp16.bin" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
-echo "4x-ClearRealityV1.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+    if [ "$COMFY_STATUS" -eq 137 ]; then
+        # Este 137 ocurrió mientras ComfyUI ya estaba sirviendo tráfico.
+        if ! restart_after_oom; then
+            cleanup
+            exit 137
+        fi
 
-# Autorización para el modelo SwinIR
-echo "003_realSR_BSRGAN_DFOWMFC_s64w8_SwinIR-L_x4_GAN.pth" >> /workspace/ComfyUI/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+        launch_comfy_until_ready
+        RESTART_STATUS=$?
+        if [ "$RESTART_STATUS" -eq 0 ]; then
+            echo "✅ ComfyUI recuperado en el mismo pod; Gateway puede volver a Ready."
+            continue
+        fi
 
+        echo "🔴 El reinicio de ComfyUI falló con código ${RESTART_STATUS}; saliendo."
+        cleanup
+        exit "$RESTART_STATUS"
+    fi
 
-# ── Lanzar ComfyUI ────────────────────────────────────────────────────────────
-echo ""
-echo "================================================"
-echo "  Setup full. starting ComfyUI..."
-echo "================================================"
-
-chmod -R 777 /workspace/ComfyUI
-COMFYUI_PORT="${COMFYUI_PORT:-8188}"
-
-rm -rf /workspace/ComfyUI/user/__manager/cache/*
-
-exec python /workspace/ComfyUI/main.py \
-    --listen "::" \
-    --port "$COMFYUI_PORT" \
-    --enable-manager
+    echo "🔴 ComfyUI terminó con código ${COMFY_STATUS} (no es 137)."
+    echo "🔴 No se ocultará este fallo: se detiene el contenedor para diagnóstico de Salad."
+    cleanup
+    exit "$COMFY_STATUS"
+done
