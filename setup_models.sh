@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Salad network-resilient bootstrap v5
+# - 0 Mbps / DNS hiccups never trigger IMDS reallocation
+# - critical HF downloads retry/resume indefinitely
+# - optional HF downloads retry in background while ComfyUI stays online
+
 
 # PASO 0: Healthcheck de CUDA — falla rápido si el pod tiene GPU rota
 echo "================================================"
@@ -53,71 +58,86 @@ if [ $? -ne 0 ]; then
 fi
 
 # =============================================================================
-# PASO 0.5: Healthcheck de Red (SaladCloud Network Bandwidth Check)
+# PASO 0.5: Startup network gate de Salad
 # =============================================================================
 echo "================================================"
 echo "  Checking Network Bandwidth Before Startup..."
 echo "================================================"
 
-# Salad usa PCs residenciales con anchos de banda muy variables.
-# Forzamos una reasignación (IMDS) si la red no da al menos 20 Mbps,
-# para evitar quedarnos atascados horas descargando safetensors masivos.
-
-MIN_MBPS="60" # Requisito mínimo (20 Mbps ~ 2.5 MB/s). Ajústalo si necesitas más.
-SPEED_TEST_URL="https://speed.cloudflare.com/__down?bytes=25000000" # Archivo de 25MB
-SPEED_TEST_ATTEMPTS="3"
-best_mbps="0"
+# IMPORTANTE: aquí SÍ usamos el ancho de banda para seleccionar el nodo.
+# Objetivo: no empezar una descarga enorme de modelos en una instancia que ya
+# arranca con una conexión claramente mala.
+#
+# Esta regla SOLO aplica durante el arranque inicial. Una vez que una instancia
+# supera MIN_MBPS y empieza a descargar, las caídas temporales a 0 Mbps / DNS /
+# timeouts NO causan reallocation: el downloader espera, reintenta y reanuda.
+MIN_MBPS="${MIN_MBPS:-80}"
+SPEED_TEST_URL="${SPEED_TEST_URL:-https://speed.cloudflare.com/__down?bytes=25000000}"
+SPEED_TEST_ATTEMPTS="${SPEED_TEST_ATTEMPTS:-3}"
+SPEED_TEST_RETRY_WAIT="${SPEED_TEST_RETRY_WAIT:-10}"
 NETWORK_OK="false"
+best_mbps="0"
 
-for attempt in $(seq 1 "$SPEED_TEST_ATTEMPTS"); do
-  echo "Speed test attempt ${attempt}/${SPEED_TEST_ATTEMPTS}..."
+while [ "$NETWORK_OK" != "true" ]; do
+  best_mbps="0"
 
-  if speed_bps=$(curl -L -o /dev/null -sS \
+  for attempt in $(seq 1 "$SPEED_TEST_ATTEMPTS"); do
+    echo "Speed test attempt ${attempt}/${SPEED_TEST_ATTEMPTS}..."
+
+    speed_bps=$(curl -L -o /dev/null -sS \
       --connect-timeout 5 \
       --max-time 30 \
       -w "%{speed_download}" \
-      "$SPEED_TEST_URL"); then
+      "$SPEED_TEST_URL" 2>/dev/null || printf '0')
 
-    # Convierte bytes/seg a Megabits/seg (Mbps)
+    speed_bps="${speed_bps:-0}"
     mbps=$(awk -v s="$speed_bps" 'BEGIN {printf "%.2f", s * 8 / 1000000}')
     echo "Measured download speed: ${mbps} Mbps"
 
-    # Guarda el mejor resultado
     best_mbps=$(awk -v best="$best_mbps" -v current="$mbps" \
       'BEGIN {printf "%.2f", (current > best ? current : best)}')
 
-    # Si supera el mínimo, la red sirve y rompemos el bucle
     if awk -v current="$mbps" -v min="$MIN_MBPS" \
       'BEGIN {exit !(current >= min)}'; then
-      echo "✅ Speed check passed. Network is stable."
+      echo "✅ Startup network gate passed: ${mbps} Mbps >= ${MIN_MBPS} Mbps."
       NETWORK_OK="true"
       break
     fi
-  else
-    echo "⚠️ Speed test attempt failed (posible 'Network is unreachable')."
+
+    [ "$attempt" -lt "$SPEED_TEST_ATTEMPTS" ] && sleep "$SPEED_TEST_RETRY_WAIT"
+  done
+
+  if [ "$NETWORK_OK" = "true" ]; then
+    break
   fi
 
-  sleep 10
-done
+  reason="Startup bandwidth below threshold: best ${best_mbps} Mbps, required ${MIN_MBPS} Mbps"
+  echo "🔴 Startup network gate failed."
+  echo "🔴 ${reason}"
+  echo "🔄 Requesting Salad reallocation BEFORE model downloads begin..."
 
-if [ "$NETWORK_OK" != "true" ]; then
-  reason="Insufficient download bandwidth or no network: best measured ${best_mbps} Mbps, required ${MIN_MBPS} Mbps"
-  
-  echo "🔴 CRITICAL ERROR: Speed check failed. Requesting Salad replica reallocation..."
-  echo "$reason"
-
-  # Llama a la API interna de Salad (IMDS) para reasignar este contenedor a otro nodo
-  curl -sS \
+  # No hacemos exit 1: eso puede producir un restart loop en el mismo nodo.
+  # Pedimos explícitamente reallocation y mantenemos PID 1 vivo mientras Salad
+  # mueve la réplica. Si por cualquier motivo seguimos vivos, repetimos la
+  # solicitud después de 5 minutos.
+  if curl -fsS \
     --request POST \
     --url "http://169.254.169.254/v1/reallocate" \
     --header "Content-Type: application/json" \
     --header "Metadata: true" \
-    --data "{\"reason\":\"${reason}\"}" || true
+    --data "{\"reason\":\"${reason}\"}" >/dev/null; then
+    echo "✅ Reallocation requested successfully. Waiting for Salad to move this instance..."
+    sleep 300
+    echo "⚠️ Instance is still alive 5 minutes after reallocation request; retrying startup gate/reallocation."
+  else
+    echo "⚠️ Could not request reallocation through IMDS. Keeping container alive and retrying in 30s."
+    sleep 30
+  fi
+done
 
-  echo "Reallocation requested. Exiting."
-  exit 1
-fi
-
+echo "================================================"
+echo "✅ Selected node passed startup bandwidth gate."
+echo "   Runtime network drops will now be handled with retry/resume, NOT reallocation."
 echo "================================================"
 
 
@@ -225,7 +245,7 @@ download_if_missing() {
     local dest="$2"
     local auth="${3:-}"
     local conns="${4:-${DOWNLOAD_CONNECTIONS:-16}}"
-    local hf_timeout="${HF_FILE_TIMEOUT:-1200}"
+    local hf_timeout="${HF_FILE_TIMEOUT:-3600}"
 
     local dest_dir
     local file_name
@@ -280,7 +300,7 @@ download_if_missing() {
                 unset HF_XET_HIGH_PERFORMANCE HF_XET_HP
                 export HF_XET_NUM_CONCURRENT_RANGE_GETS="${HF_XET_NUM_CONCURRENT_RANGE_GETS:-32}"
                 export HF_XET_CHUNK_CACHE_SIZE_BYTES=0
-                export HF_HUB_DOWNLOAD_TIMEOUT=60
+                export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
 
                 timeout --signal=TERM "${hf_timeout}s" \
                     hf "${hf_opts[@]}"
@@ -342,9 +362,10 @@ download_if_missing() {
         "--disk-cache=256M"
         "--file-allocation=falloc"
         "-c"
-        "--max-tries=8"
-        "--retry-wait=5"
-        "--timeout=60"
+        "--max-tries=${ARIA2_MAX_TRIES:-0}"
+        "--retry-wait=${ARIA2_RETRY_WAIT:-10}"
+        "--connect-timeout=${ARIA2_CONNECT_TIMEOUT:-30}"
+        "--timeout=${ARIA2_TIMEOUT:-60}"
         "--console-log-level=notice"
         "--summary-interval=5"
         "-d" "$dest_dir"
@@ -365,13 +386,12 @@ download_if_missing() {
     local aria_status=$?
 
     # errorCode=24 de aria2c = "Authorization failed" (HTTP 401/403).
-    # No tiene sentido dejar que las siguientes ~20 descargas repitan el mismo
-    # error con el mismo token; abortamos todo el script de inmediato.
+    # IMPORTANTE: devolvemos el error al caller; NO hacemos exit 1 aquí. Un exit
+    # durante bootstrap provoca restart/reallocation loops en Salad.
     if [ "$aria_status" -eq 24 ]; then
         echo "🔴 CRITICAL ERROR: aria2c recibió 'Authorization failed' (código 24) para $file_name."
-        echo "🔴 El token fue rechazado a mitad de las descargas (pudo haberse revocado recién)."
-        echo "🔴 Abortando en vez de seguir fallando en cascada. Revisa/rota el token y reinicia."
-        exit 1
+        echo "🔴 El token fue rechazado. Se devuelve status 24 sin matar el contenedor."
+        return 24
     fi
 
     if [ "$aria_status" -eq 0 ] && [ -s "$part_path" ]; then
@@ -482,12 +502,134 @@ echo "Auth with Hugging Face..."
 # Usamos el comando de Python para el login con el token proporcionado
 python3 -c "from huggingface_hub import login; login(token='$HF_TOKEN')"
 
-# Descargas críticas: si falta un asset de MiniMax, NO anunciamos Ready.
-critical_download_if_missing() {
-    if ! download_if_missing "$@"; then
-        echo "🔴 CRITICAL ERROR: no se pudo preparar un asset requerido por MiniMax H3."
-        exit 1
+# Descargas críticas: un fallo TRANSITORIO de red/DNS NO debe matar el contenedor.
+# Salad reinicia el contenedor en el mismo nodo tras exits no-cero y, después de
+# fallos repetidos, puede reasignarlo. Por eso mantenemos PID 1 vivo y reintentamos.
+HF_DNS_HOST="${HF_DNS_HOST:-huggingface.co}"
+DNS_RETRY_DELAY="${DNS_RETRY_DELAY:-10}"
+CRITICAL_DOWNLOAD_RETRY_DELAY="${CRITICAL_DOWNLOAD_RETRY_DELAY:-20}"
+CRITICAL_DOWNLOAD_RETRY_MAX="${CRITICAL_DOWNLOAD_RETRY_MAX:-0}"  # 0 = ilimitado
+
+dns_resolves() {
+    local host="${1:-$HF_DNS_HOST}"
+    python3 - "$host" <<'PYDNS' >/dev/null 2>&1
+import socket, sys
+host = sys.argv[1]
+socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+PYDNS
+}
+
+wait_for_hf_dns() {
+    local checks=0
+    while ! dns_resolves "$HF_DNS_HOST"; do
+        checks=$((checks + 1))
+        if [ "$checks" -eq 1 ] || [ $((checks % 6)) -eq 0 ]; then
+            echo "⚠️ DNS no puede resolver ${HF_DNS_HOST}; manteniendo el contenedor vivo."
+            echo "⚠️ Reintentando resolución en ${DNS_RETRY_DELAY}s. NO se hará exit 1."
+            echo "--- /etc/resolv.conf ---"
+            cat /etc/resolv.conf 2>/dev/null || true
+            echo "------------------------"
+        fi
+        sleep "$DNS_RETRY_DELAY"
+    done
+
+    if [ "$checks" -gt 0 ]; then
+        echo "✅ DNS recuperado: ${HF_DNS_HOST} vuelve a resolver."
     fi
+}
+
+critical_download_if_missing() {
+    local attempt=0
+    local status=0
+    local target="${2:-unknown}"
+
+    while true; do
+        attempt=$((attempt + 1))
+
+        # No gastamos los reintentos internos de hf/aria2 mientras el resolver está caído.
+        wait_for_hf_dns
+
+        echo "🔁 Critical download attempt ${attempt}: $(basename "$target")"
+        if download_if_missing "$@"; then
+            return 0
+        else
+            status=$?
+        fi
+
+        echo "⚠️ Falló asset crítico $(basename "$target") (status=${status})."
+        echo "⚠️ NO se cerrará el contenedor; MiniMax seguirá Not Ready y se reintentará."
+
+        if [ "$status" -eq 24 ]; then
+            echo "🔴 Hugging Face rechazó la autorización. Esto no parece un fallo DNS temporal."
+            echo "🔴 Mantengo el pod vivo para evitar un restart/reallocation loop."
+            echo "🔴 Corrige HF_TOKEN y despliega una nueva revisión."
+            while true; do sleep 3600; done
+        fi
+
+        if [ "$CRITICAL_DOWNLOAD_RETRY_MAX" -gt 0 ] && \
+           [ "$attempt" -ge "$CRITICAL_DOWNLOAD_RETRY_MAX" ]; then
+            echo "🔴 Se alcanzó CRITICAL_DOWNLOAD_RETRY_MAX=${CRITICAL_DOWNLOAD_RETRY_MAX}."
+            echo "🔴 Mantengo el contenedor vivo (Not Ready) en lugar de generar Exit 1."
+            while true; do sleep 3600; done
+        fi
+
+        sleep "$CRITICAL_DOWNLOAD_RETRY_DELAY"
+    done
+}
+
+# Descargas opcionales: también toleran DNS/red intermitente, pero ComfyUI ya está
+# sirviendo tráfico. Por eso pueden esperar indefinidamente sin bloquear el Gateway.
+BACKGROUND_DOWNLOAD_RETRY_DELAY="${BACKGROUND_DOWNLOAD_RETRY_DELAY:-20}"
+
+background_download_if_missing() {
+    local attempt=0
+    local status=0
+    local target="${2:-unknown}"
+
+    while true; do
+        attempt=$((attempt + 1))
+        wait_for_hf_dns
+
+        echo "🔁 Background download attempt ${attempt}: $(basename "$target")"
+        if download_if_missing "$@"; then
+            return 0
+        else
+            status=$?
+        fi
+
+        if [ "$status" -eq 24 ]; then
+            echo "🔴 Authorization failed para $(basename "$target")."
+            echo "🔴 La descarga opcional queda pausada; ComfyUI permanece activo."
+            while true; do sleep 3600; done
+        fi
+
+        echo "⚠️ Descarga opcional falló (status=${status}); reintentando en ${BACKGROUND_DOWNLOAD_RETRY_DELAY}s."
+        echo "⚠️ NO se reinicia ni se reasigna el pod."
+        sleep "$BACKGROUND_DOWNLOAD_RETRY_DELAY"
+    done
+}
+
+# Para fuentes opcionales que no son Hugging Face (Google Drive / Mega).
+# Si la red de Salad cae temporalmente, reintenta sin afectar ComfyUI ni PID 1.
+background_retry_command() {
+    local label="$1"
+    shift
+    local attempt=0
+    local status=0
+
+    while true; do
+        attempt=$((attempt + 1))
+        echo "🔁 ${label} attempt ${attempt}"
+        if "$@"; then
+            return 0
+        else
+            status=$?
+        fi
+
+        echo "⚠️ ${label} falló (status=${status}); retry en ${BACKGROUND_DOWNLOAD_RETRY_DELAY}s."
+        echo "⚠️ ComfyUI sigue activo; NO se reinicia ni se reasigna el pod."
+        sleep "$BACKGROUND_DOWNLOAD_RETRY_DELAY"
+    done
 }
 
 # ── SECCIÓN CRÍTICA: MINIMAX H3 ──────────────────────────────────────────────
@@ -723,11 +865,11 @@ echo "================================================"
     # VAEs de otros productos: NO deben bloquear MiniMax / Gateway.
     echo "[ Background VAEs: Z-Image / Klein / Krea ]"
     cd ${COMFYUI_DIR}/models/vae && rm -rf split_files/
-    download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
+    background_download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
         "ae.safetensors" "$HF_TOKEN"
-    download_if_missing "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" \
+    background_download_if_missing "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" \
         "flux2-vae.safetensors" "$HF_TOKEN"
-    download_if_missing "https://huggingface.co/wikeeyang/Krea2-Turbo-HD-V1/resolve/main/Krea2-HD-vae.safetensors" \
+    background_download_if_missing "https://huggingface.co/wikeeyang/Krea2-Turbo-HD-V1/resolve/main/Krea2-HD-vae.safetensors" \
         "Krea2-HD-vae.safetensors" "$HF_TOKEN"
 
 # --- SAM3 ---
@@ -737,9 +879,9 @@ cd ${COMFYUI_DIR}/models/sam3
     # ── SAMS (ReActor/Segment Anything) ──────────────────────────────────────────
 echo "[ SAM3 ]"
 cd ${COMFYUI_DIR}/models/sams
-download_if_missing "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/sams/sam_vit_b_01ec64.pth" \
+background_download_if_missing "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/sams/sam_vit_b_01ec64.pth" \
     "sam_vit_b_01ec64.pth" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/HCMUE-Research/SAM-vit-h/resolve/main/sam_vit_h_4b8939.pth" \
+background_download_if_missing "https://huggingface.co/HCMUE-Research/SAM-vit-h/resolve/main/sam_vit_h_4b8939.pth" \
     "sam_vit_h_4b8939.pth" "$HF_TOKEN"
 
 
@@ -749,52 +891,52 @@ download_if_missing "https://huggingface.co/HCMUE-Research/SAM-vit-h/resolve/mai
 echo "[ ------- Downloading Diffusion Models -------]"
 cd ${COMFYUI_DIR}/models/diffusion_models && rm -rf split_files/
 
-download_if_missing "https://huggingface.co/enzinoai/IntoRealism-Krea-2/resolve/main/Krea2IntoRealismV1-Int8.safetensors" \
+background_download_if_missing "https://huggingface.co/enzinoai/IntoRealism-Krea-2/resolve/main/Krea2IntoRealismV1-Int8.safetensors" \
     "IntoRealismKrea2.safetensors" 
 
 
 cd ${COMFYUI_DIR}/models/diffusion_models 
-download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
+background_download_if_missing "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
     "z_image_turbo_bf16.safetensors" "$HF_TOKEN"
 
 cd ${COMFYUI_DIR}/models/diffusion_models 
-download_if_missing "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors" \
+background_download_if_missing "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors" \
     "flux-2-klein-9b-fp8.safetensors" "$HF_TOKEN"
 
 
 # --- TEXT ENCODERS ---
 echo "[ Text Encoders ]"
 cd ${COMFYUI_DIR}/models/text_encoders && rm -rf split_files/
-download_if_missing "https://huggingface.co/AlperKTS/Krea2_FP8/resolve/main/qwen3vl_4b_fp8_scaled.safetensors" \
+background_download_if_missing "https://huggingface.co/AlperKTS/Krea2_FP8/resolve/main/qwen3vl_4b_fp8_scaled.safetensors" \
     "qwen3vl_4b_fp8_scaled.safetensors" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/text_encoders/qwen_3_8b.safetensors" \
+background_download_if_missing "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/text_encoders/qwen_3_8b.safetensors" \
     "qwen_3_8b.safetensors" "$HF_TOKEN"
 
 
 echo "[-----------  Downloading BBOX Ultralytics SEGM -----------  ]"
 cd ${COMFYUI_DIR}/models/ultralytics/segm
-download_if_missing "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8m-seg.pt" \
+background_download_if_missing "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8m-seg.pt" \
     "person_yolov8m-seg.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/24xx/segm/resolve/main/deepfashion2_yolov8s-seg.pt" \
+background_download_if_missing "https://huggingface.co/24xx/segm/resolve/main/deepfashion2_yolov8s-seg.pt" \
     "deepfashion2_yolov8s-seg.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/24xx/segm/resolve/main/hair_yolov8n-seg_60.pt" \
+background_download_if_missing "https://huggingface.co/24xx/segm/resolve/main/hair_yolov8n-seg_60.pt" \
     "hair_yolov8n-seg_60.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/24xx/segm/resolve/main/skin_yolov8n-seg_800.pt" \
+background_download_if_missing "https://huggingface.co/24xx/segm/resolve/main/skin_yolov8n-seg_800.pt" \
     "skin_yolov8n-seg_800.pt" "$HF_TOKEN"
 
 # ── BBOX Ultralytics ──────────────────────────────────────────────────────────
 echo ""
 echo "[ BBOX Ultralytics ]"
 cd ${COMFYUI_DIR}/models/ultralytics/bbox && rm -rf split_files/
-download_if_missing "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" \
+background_download_if_missing "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" \
     "face_yolov8m.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbox/female_breast-v4.2.pt" \
+background_download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbox/female_breast-v4.2.pt" \
     "female_breast-v4.2.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbox/vagina-v3.2.pt" \
+background_download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbox/vagina-v3.2.pt" \
     "vagina-v3.2.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbox/full_eyes_detect_v1.pt" \
+background_download_if_missing "https://huggingface.co/ashllay/YOLO_Models/resolve/main/bbox/full_eyes_detect_v1.pt" \
     "full_eyes_detect_v1.pt" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/xingren23/comfyflow-models/resolve/976de8449674de379b02c144d0b3cfa2b61482f2/ultralytics/bbox/hand_yolov8s.pt" \
+background_download_if_missing "https://huggingface.co/xingren23/comfyflow-models/resolve/976de8449674de379b02c144d0b3cfa2b61482f2/ultralytics/bbox/hand_yolov8s.pt" \
     "hand_yolov8s.pt" "$HF_TOKEN"
 
 
@@ -803,19 +945,19 @@ download_if_missing "https://huggingface.co/xingren23/comfyflow-models/resolve/9
 echo ""
 echo "[ -----------  Downloading UUpscaling  Models  ----------- ]"
 cd ${COMFYUI_DIR}/models/upscale_models && rm -rf split_files/
-download_if_missing "https://huggingface.co/FacehugmanIII/4x_foolhardy_Remacri/resolve/main/4x_foolhardy_Remacri.pth" \
+background_download_if_missing "https://huggingface.co/FacehugmanIII/4x_foolhardy_Remacri/resolve/main/4x_foolhardy_Remacri.pth" \
     "4x_foolhardy_Remacri.pth" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors" \
+background_download_if_missing "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors" \
     "4x-UltraSharpV2.safetensors" "$HF_TOKEN"
-download_if_missing "https://huggingface.co/holwech/universal-upscaler-v2-esrgan/resolve/main/4x_UniversalUpscalerV2-Neutral_115000_swaG.pth" \
+background_download_if_missing "https://huggingface.co/holwech/universal-upscaler-v2-esrgan/resolve/main/4x_UniversalUpscalerV2-Neutral_115000_swaG.pth" \
     "4x_UniversalUpscalerV2-Neutral_115000_swaG.pth" "$HF_TOKEN"
 
 
-download_gdown_if_missing "1N3ysO2IWkouzy4aFONLgYUjaUMrLz8AB" "4xFFHQDAT.pth"
+background_retry_command "Google Drive 4xFFHQDAT" download_gdown_if_missing "1N3ysO2IWkouzy4aFONLgYUjaUMrLz8AB" "4xFFHQDAT.pth"
 
 echo "[ -----------  Creating BROKEN_NCNN  ----------- ]"
 cd ${COMFYUI_DIR}/models/upscale_models/
-megadl 'https://mega.nz/folder/Xc4wnC7T#yUS5-9-AbRxLhpdPW_8f2w'
+background_retry_command "Mega BROKEN_NCNN" megadl 'https://mega.nz/folder/Xc4wnC7T#yUS5-9-AbRxLhpdPW_8f2w'
 
 
 # --- LUTS ---
@@ -824,7 +966,7 @@ echo "[ VAE ]"
 cd ${COMFYUI_DIR}/custom_nodes/ComfyUI_essentials/luts 
 echo ""
 echo "[ ----------Downloading LUTs --------------]"
-download_gdown_if_missing "1GJEhRrycKwMINkgicw_GjQbjuwdqRJ9P" "LUTs" "folder"
+background_retry_command "Google Drive LUTs" download_gdown_if_missing "1GJEhRrycKwMINkgicw_GjQbjuwdqRJ9P" "LUTs" "folder"
 
 printf 'ready\n' > /workspace/.setup_state/optional_models
 echo "✅ Optional/background downloads finished."
